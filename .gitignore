@@ -1,174 +1,75 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import sys
 
-# C extensions
-*.so
+# === Step 1: Load the MRI image ===
+image_path = 'main1.jpg'  # Replace with your MRI scan image path
+image = cv2.imread(image_path)
+if image is None:
+    print(f"Error: Could not load image from '{image_path}'.")
+    sys.exit()
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+blur = cv2.GaussianBlur(gray, (5, 5), 0)
 
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
+# === Step 2: Create a mask of the full brain (remove skull) ===
+_, brain_thresh = cv2.threshold(blur, 10, 255, cv2.THRESH_BINARY)
+contours, _ = cv2.findContours(brain_thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+max_contour = max(contours, key=cv2.contourArea)
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
+brain_mask = np.zeros_like(gray)
+cv2.drawContours(brain_mask, [max_contour], -1, 255, thickness=cv2.FILLED)
 
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-cover/
+# Apply the brain mask to remove background/skull
+brain_only = cv2.bitwise_and(gray, gray, mask=brain_mask)
 
-# Translations
-*.mo
-*.pot
+# === Step 3: Detect white patches (tumor-like regions) across full brain ===
+_, white_patch_thresh = cv2.threshold(brain_only, 200, 255, cv2.THRESH_BINARY)
 
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
+# === Step 4: Find contours of white patches ===
+patch_contours, _ = cv2.findContours(white_patch_thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-# Flask stuff:
-instance/
-.webassets-cache
+# === Step 5: Find largest white patch area ===
+max_contour_area = 0
+for cnt in patch_contours:
+    max_contour_area = max(max_contour_area, cv2.contourArea(cnt))
 
-# Scrapy stuff:
-.scrapy
+# Set a threshold to ignore small white regions (noise)
+min_tumor_area = 500
 
-# Sphinx documentation
-docs/_build/
+# === Step 6: Classify and Report ===
+if max_contour_area > min_tumor_area:
+    print("Tumor Detected! Large white patch found.")
+    brain_area = np.sum(brain_mask == 255)
+    tumor_percentage = (max_contour_area / brain_area) * 100 if brain_area > 0 else 0
+    print(f"Percentage of brain affected by tumor: {tumor_percentage:.2f}%")
+else:
+    print("Healthy Brain! No significant white patch detected.")
 
-# PyBuilder
-.pybuilder/
-target/
+# === Step 7: Draw tumor outline on original image ===
+outlined_image = image.copy()
+for cnt in patch_contours:
+    if cv2.contourArea(cnt) == max_contour_area:
+        cv2.drawContours(outlined_image, [cnt], -1, (0, 255, 0), 2)
 
-# Jupyter Notebook
-.ipynb_checkpoints
+# === Step 8: Display Results ===
+plt.figure(figsize=(14, 6))
 
-# IPython
-profile_default/
-ipython_config.py
+plt.subplot(1, 3, 1)
+plt.title('Original MRI')
+plt.imshow(gray, cmap='gray')
+plt.axis('off')
 
-# pyenv
-#   For a library or package, you might want to ignore these files since the code is
-#   intended to run in multiple environments; otherwise, check them in:
-# .python-version
+plt.subplot(1, 3, 2)
+plt.title('Brain Only')
+plt.imshow(brain_only, cmap='gray')
+plt.axis('off')
 
-# pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
-#Pipfile.lock
+plt.subplot(1, 3, 3)
+plt.title('Tumor Outlined')
+plt.imshow(cv2.cvtColor(outlined_image, cv2.COLOR_BGR2RGB))
+plt.axis('off')
 
-# UV
-#   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-#uv.lock
-
-# poetry
-#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
-#poetry.lock
-
-# pdm
-#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
-#pdm.lock
-#   pdm stores project-wide configurations in .pdm.toml, but it is recommended to not include it
-#   in version control.
-#   https://pdm.fming.dev/latest/usage/project/#working-with-version-control
-.pdm.toml
-.pdm-python
-.pdm-build/
-
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
-__pypackages__/
-
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
-
-# SageMath parsed files
-*.sage.py
-
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# PyCharm
-#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#  and can be added to the global gitignore or merged into this file.  For a more nuclear
-#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#.idea/
-
-# Ruff stuff:
-.ruff_cache/
-
-# PyPI configuration file
-.pypirc
+plt.tight_layout()
+plt.show()
